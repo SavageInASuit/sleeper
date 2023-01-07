@@ -33,7 +33,7 @@ struct MyEguiApp {
 }
 
 impl MyEguiApp {
-    fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         // Customize egui here with cc.egui_ctx.set_fonts and cc.egui_ctx.set_visuals.
         // Restore app state using cc.storage (requires the "persistence" feature).
         // Use the cc.gl (a glow::Context) to create graphics shaders and buffers that you can use
@@ -60,14 +60,14 @@ fn sleep_counter(ui: &mut egui::Ui, counter: &mut i32) {
     });
 }
 
-fn sleep_at(instant: Instant, kill_signal: Receiver<bool>) -> JoinHandle<()> {
+fn sleep_at(when_to_sleep: Instant, kill_signal: Receiver<bool>) -> JoinHandle<()> {
     spawn(move || {
-        let now = Instant::now();
-        let mut until_sleep = instant.duration_since(now);
-        while until_sleep.as_secs() > 0 {
+        let mut now = Instant::now();
+        let mut until_sleep: Duration;
+        while now < when_to_sleep {
+            now = Instant::now();
+            until_sleep = when_to_sleep.duration_since(now);
             sleep(Duration::from_secs(1));
-            let now = Instant::now();
-            until_sleep = instant.duration_since(now);
             println!("Time until sleep: {:?}", until_sleep);
             if kill_signal.try_recv().is_ok() {
                 println!("Kill signal received");
@@ -77,15 +77,12 @@ fn sleep_at(instant: Instant, kill_signal: Receiver<bool>) -> JoinHandle<()> {
         println!("Sleeping now");
         let mut cmd = Command::new("osascript");
         cmd.arg("-e").arg("tell application \"Finder\" to sleep");
-        println!(
-            "TODO: Send 'has slept' signal - Command output: {:?}",
-            cmd.output()
-        );
+        println!("Sleep command output: {:?}", cmd.output());
     })
 }
 
 impl eframe::App for MyEguiApp {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Sleepy");
             ui.separator();
@@ -99,14 +96,12 @@ impl eframe::App for MyEguiApp {
 
                 if ui.button("Yes").clicked() {
                     println!("We will sleep in {} minutes", self.sleep_minutes);
-                    // TODO: Use signals to
-                    //  - Notify when sleeping - adds ability to reset UI
                     let (tx, rx) = channel::<bool>();
                     self.killswitch = Some(tx);
                     self.sleep_started = SleepyInstant(Instant::now());
                     let time_to_sleep = self.sleep_started.0
                         + Duration::from_secs((self.sleep_minutes * 60) as u64);
-                    let handle = sleep_at(time_to_sleep, rx);
+                    sleep_at(time_to_sleep, rx);
                     self.sleep_pending = true;
                 }
             } else {
@@ -123,6 +118,12 @@ impl eframe::App for MyEguiApp {
                         Ok(_) => println!("Send kill signal"),
                         Err(e) => panic!("An error occurred while sending kill signal: {}", e),
                     }
+                    self.sleep_pending = false;
+                }
+
+                let time_to_sleep =
+                    self.sleep_started.0 + Duration::from_secs((self.sleep_minutes * 60) as u64);
+                if Instant::now() > time_to_sleep {
                     self.sleep_pending = false;
                 }
             }
