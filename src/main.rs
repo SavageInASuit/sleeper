@@ -1,4 +1,4 @@
-use eframe::egui;
+use eframe::egui::{self};
 use std::process::Command;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread::{sleep, spawn, JoinHandle};
@@ -27,6 +27,7 @@ impl Default for SleepyInstant {
 #[derive(Default)]
 struct MyEguiApp {
     sleep_minutes: i32,
+    sleep_minutes_s: String,
     sleep_pending: bool,
     sleep_started: SleepyInstant,
     killswitch: Option<Sender<bool>>,
@@ -40,24 +41,81 @@ impl MyEguiApp {
         // for e.g. egui::PaintCallback.
         Self {
             sleep_minutes: 6,
+            sleep_minutes_s: "6".to_owned(),
             sleep_pending: false,
             sleep_started: SleepyInstant(std::time::Instant::now()),
             killswitch: None,
         }
     }
-}
 
-fn sleep_counter(ui: &mut egui::Ui, counter: &mut i32) {
-    ui.horizontal(|ui| {
-        ui.label("Sleep Minutes");
-        if ui.button("-").clicked() && *counter > 0 {
-            *counter -= 5;
+    fn pre_sleep_ui(&mut self, ui: &mut egui::Ui) {
+        self.sleep_counter(ui);
+        ui.label(format!(
+            "Should we sleep after {} minutes?",
+            self.sleep_minutes
+        ));
+        if ui.button("Yes").clicked() {
+            println!("We will sleep in {} minutes", self.sleep_minutes);
+            let (tx, rx) = channel::<bool>();
+            self.killswitch = Some(tx);
+            self.sleep_started = SleepyInstant(Instant::now());
+            let time_to_sleep =
+                self.sleep_started.0 + Duration::from_secs((self.sleep_minutes * 60) as u64);
+            sleep_at(time_to_sleep, rx);
+            self.sleep_pending = true;
         }
-        ui.label(format!("{}", counter));
-        if ui.button("+").clicked() {
-            *counter += 5;
+    }
+
+    fn sleep_pending_ui(&mut self, ui: &mut egui::Ui) {
+        let elapsed_seconds = self.sleep_started.0.elapsed().as_secs() as i32;
+        let seconds_until_sleep = (self.sleep_minutes * 60) - elapsed_seconds;
+        let minutes_until_sleep: i32 = seconds_until_sleep / 60;
+        ui.heading(format!(
+            "Sleeping in {} minutes {} seconds",
+            minutes_until_sleep,
+            seconds_until_sleep % 60
+        ));
+        // The countdown isn't updated in UI unless there is an event triggered, so we need to manually repaint to see the countdown
+        // This should probably only happen if the window is visible... Can we check for that?
+        ui.ctx().request_repaint();
+
+        if ui.button("Cancel Sleep").clicked() {
+            match self.killswitch.as_mut().unwrap().send(true) {
+                Ok(_) => println!("Send kill signal"),
+                Err(e) => panic!("An error occurred while sending kill signal: {}", e),
+            }
+            self.sleep_pending = false;
         }
-    });
+        let time_to_sleep =
+            self.sleep_started.0 + Duration::from_secs((self.sleep_minutes * 60) as u64);
+        if Instant::now() > time_to_sleep {
+            self.sleep_pending = false;
+        }
+    }
+
+    fn sleep_counter(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.label("Sleep Minutes");
+            if ui.button("-").clicked() && self.sleep_minutes > 0 {
+                self.sleep_minutes -= 5;
+                self.sleep_minutes_s = self.sleep_minutes.to_string();
+            }
+            let minute_input = ui.text_edit_singleline(&mut self.sleep_minutes_s);
+            let mut style = (*minute_input.ctx.style()).clone();
+            style.spacing.text_edit_width = 20.;
+            minute_input.ctx.set_style(style);
+            if minute_input.changed() {
+                self.sleep_minutes = match self.sleep_minutes_s.parse() {
+                    Ok(num) => num,
+                    _ => 0,
+                }
+            }
+            if ui.button("+").clicked() {
+                self.sleep_minutes += 5;
+                self.sleep_minutes_s = self.sleep_minutes.to_string();
+            }
+        });
+    }
 }
 
 fn sleep_at(when_to_sleep: Instant, kill_signal: Receiver<bool>) -> JoinHandle<()> {
@@ -65,14 +123,14 @@ fn sleep_at(when_to_sleep: Instant, kill_signal: Receiver<bool>) -> JoinHandle<(
         let mut now = Instant::now();
         let mut until_sleep: Duration;
         while now < when_to_sleep {
-            now = Instant::now();
-            until_sleep = when_to_sleep.duration_since(now);
-            sleep(Duration::from_secs(1));
-            println!("Time until sleep: {:?}", until_sleep);
             if kill_signal.try_recv().is_ok() {
                 println!("Kill signal received");
                 return;
             }
+            now = Instant::now();
+            until_sleep = when_to_sleep.duration_since(now);
+            sleep(Duration::from_secs(1));
+            println!("Time until sleep: {:?}", until_sleep);
         }
         println!("Sleeping now");
         let mut cmd = Command::new("osascript");
@@ -87,45 +145,9 @@ impl eframe::App for MyEguiApp {
             ui.heading("Sleepy");
             ui.separator();
             if !self.sleep_pending {
-                sleep_counter(ui, &mut self.sleep_minutes);
-
-                ui.label(format!(
-                    "Should we sleep after {} minutes?",
-                    self.sleep_minutes
-                ));
-
-                if ui.button("Yes").clicked() {
-                    println!("We will sleep in {} minutes", self.sleep_minutes);
-                    let (tx, rx) = channel::<bool>();
-                    self.killswitch = Some(tx);
-                    self.sleep_started = SleepyInstant(Instant::now());
-                    let time_to_sleep = self.sleep_started.0
-                        + Duration::from_secs((self.sleep_minutes * 60) as u64);
-                    sleep_at(time_to_sleep, rx);
-                    self.sleep_pending = true;
-                }
+                self.pre_sleep_ui(ui);
             } else {
-                let elapsed_seconds = self.sleep_started.0.elapsed().as_secs() as i32;
-                let seconds_until_sleep = (self.sleep_minutes * 60) - elapsed_seconds;
-                let minutes_until_sleep: i32 = seconds_until_sleep / 60;
-                ui.heading(format!(
-                    "Sleeping in {} minutes {} seconds",
-                    minutes_until_sleep,
-                    seconds_until_sleep % 60
-                ));
-                if ui.button("Cancel Sleep").clicked() {
-                    match self.killswitch.as_mut().unwrap().send(true) {
-                        Ok(_) => println!("Send kill signal"),
-                        Err(e) => panic!("An error occurred while sending kill signal: {}", e),
-                    }
-                    self.sleep_pending = false;
-                }
-
-                let time_to_sleep =
-                    self.sleep_started.0 + Duration::from_secs((self.sleep_minutes * 60) as u64);
-                if Instant::now() > time_to_sleep {
-                    self.sleep_pending = false;
-                }
+                self.sleep_pending_ui(ui);
             }
         });
     }
