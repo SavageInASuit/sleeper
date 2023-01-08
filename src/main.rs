@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 fn main() {
     let options = eframe::NativeOptions {
         initial_window_size: Some(egui::vec2(300.0, 120.0)),
+        resizable: false,
         ..Default::default()
     };
     eframe::run_native(
@@ -79,6 +80,8 @@ impl MyEguiApp {
         // This should probably only happen if the window is visible... Can we check for that?
         ui.ctx().request_repaint();
 
+        ui.separator();
+
         if ui.button("Cancel Sleep").clicked() {
             match self.killswitch.as_mut().unwrap().send(true) {
                 Ok(_) => println!("Send kill signal"),
@@ -95,7 +98,7 @@ impl MyEguiApp {
 
     fn sleep_counter(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            ui.label("Sleep Minutes");
+            ui.label("Delay Minutes");
             if ui.button("-").clicked() && self.sleep_minutes > 0 {
                 self.sleep_minutes -= 5;
                 self.sleep_minutes_s = self.sleep_minutes.to_string();
