@@ -9,7 +9,7 @@ fn main() {
         ..Default::default()
     };
     eframe::run_native(
-        "Catherine is Sleepy",
+        "Sleeper",
         options,
         Box::new(|cc| Box::new(MyEguiApp::new(cc))),
     );
