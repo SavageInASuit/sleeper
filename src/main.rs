@@ -4,7 +4,7 @@ use eframe::egui::{self};
 
 fn main() {
     let options = eframe::NativeOptions {
-        initial_window_size: Some(egui::vec2(300.0, 120.0)),
+        initial_window_size: Some(egui::vec2(220.0, 100.0)),
         resizable: false,
         ..Default::default()
     };

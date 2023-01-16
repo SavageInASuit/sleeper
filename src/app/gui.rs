@@ -1,4 +1,4 @@
-use eframe::egui::{self};
+use eframe::egui;
 use std::sync::mpsc::{channel, Sender};
 use std::time::{Duration, Instant};
 
@@ -20,8 +20,8 @@ impl MyEguiApp {
         // Use the cc.gl (a glow::Context) to create graphics shaders and buffers that you can use
         // for e.g. egui::PaintCallback.
         Self {
-            sleep_minutes: 6,
-            sleep_minutes_s: "6".to_owned(),
+            sleep_minutes: 60,
+            sleep_minutes_s: "60".to_owned(),
             sleep_pending: false,
             sleep_started: SleepyInstant(std::time::Instant::now()),
             killswitch: None,
@@ -30,11 +30,8 @@ impl MyEguiApp {
 
     fn pre_sleep_ui(&mut self, ui: &mut egui::Ui) {
         self.sleep_counter(ui);
-        ui.label(format!(
-            "Should we sleep after {} minutes?",
-            self.sleep_minutes
-        ));
-        if ui.button("Yes").clicked() {
+        ui.separator();
+        if ui.button("Confirm").clicked() {
             println!("We will sleep in {} minutes", self.sleep_minutes);
             let (tx, rx) = channel::<bool>();
             self.killswitch = Some(tx);
@@ -50,7 +47,7 @@ impl MyEguiApp {
         let elapsed_seconds = self.sleep_started.0.elapsed().as_secs() as i32;
         let seconds_until_sleep = (self.sleep_minutes * 60) - elapsed_seconds;
         let minutes_until_sleep: i32 = seconds_until_sleep / 60;
-        ui.heading(format!(
+        ui.label(format!(
             "Sleeping in {} minutes {} seconds",
             minutes_until_sleep,
             seconds_until_sleep % 60
@@ -77,7 +74,7 @@ impl MyEguiApp {
 
     fn sleep_counter(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            ui.label("Delay Minutes");
+            ui.label("Sleep after ");
             if ui.button("-").clicked() && self.sleep_minutes > 0 {
                 self.sleep_minutes -= 5;
                 self.sleep_minutes_s = self.sleep_minutes.to_string();
@@ -96,6 +93,7 @@ impl MyEguiApp {
                 self.sleep_minutes += 5;
                 self.sleep_minutes_s = self.sleep_minutes.to_string();
             }
+            ui.label(" minutes?");
         });
     }
 }
@@ -103,13 +101,17 @@ impl MyEguiApp {
 impl eframe::App for MyEguiApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("Sleepy");
-            ui.separator();
-            if !self.sleep_pending {
-                self.pre_sleep_ui(ui);
-            } else {
-                self.sleep_pending_ui(ui);
-            }
+            ui.vertical_centered(|ui| {
+                ui.heading("Sleeper");
+
+                ui.separator();
+
+                if !self.sleep_pending {
+                    self.pre_sleep_ui(ui);
+                } else {
+                    self.sleep_pending_ui(ui);
+                }
+            });
         });
     }
 }
